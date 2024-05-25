@@ -64,3 +64,25 @@ class Minigrid:
 
     def close(self):
         self._env.close()
+        
+if __name__ == "__main__":
+    env = Minigrid("MiniGrid-MemoryS9-v0", realtime_mode = False)
+    obs = env.reset()
+    print("Observation space:", env.observation_space)
+    print("Action space:", env.action_space)
+    print("Initial observation:", obs)
+    print("Initial observation shape:", obs.shape)
+    print("Step 1")
+    obs, reward, done, info = env.step([2])
+    print("Observation:", obs)
+    print("Reward:", reward)
+    print("Done:", done)
+    print("Info:", info)
+    print("Step 2")
+    obs, reward, done, info = env.step([1])
+    print("Observation:", obs)
+    print("Reward:", reward)
+    print("Done:", done)
+    print("Info:", info)
+    env.render()
+    env.close()
