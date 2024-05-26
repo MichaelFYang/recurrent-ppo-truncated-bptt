@@ -38,14 +38,14 @@ class MovementObsWrapper(gym.ObservationWrapper):
 
         # Calculate movement and direction change
         movement = np.array([current_pos[0] - self.prev_agent_pos[0], current_pos[1] - self.prev_agent_pos[1]], dtype=np.float32)
-        dir_change = (current_dir - self.prev_agent_dir + 4) % 4  # Normalize to [0, 3] range
+        dir_diff = current_dir - self.prev_agent_dir
 
-        if dir_change == 3:
-            dir_change = -1  # Represent left turn as -1
-        elif dir_change == 2:
-            dir_change = 0  # Represent no change as 0
-        elif dir_change == 1:
-            dir_change = 1  # Represent right turn as 1
+        if dir_diff == -1 or dir_diff == 3:
+            dir_change = -1  # Left turn
+        elif dir_diff == 1 or dir_diff == -3:
+            dir_change = 1  # Right turn
+        else:
+            dir_change = 0  # No change
 
         # Flatten the image observation and normalize it
         flattened_image = obs.astype(np.float32).flatten() / 255.0
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     print("Observation space:", env.observation_space)
     print("Action space:", env.action_space)
     print("Initial observation:", obs)
-    print("Initial observation shape:", obs['image'].shape)
+    print("Initial observation shape:", obs.shape)
     print("Step 1")
     obs, reward, done, info = env.step([2])
     print("Observation:", obs)

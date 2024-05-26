@@ -57,7 +57,7 @@ class Buffer():
         # Add collected recurrent cell states to the dictionary
         # Add collected recurrent cell states to the dictionary
         samples["hxs"] =  self.hxs
-        if self.layer_type == "lstm":
+        if "lstm" in self.layer_type:
             samples["cxs"] = self.cxs
 
         # Split data into sequences and apply zero-padding

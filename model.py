@@ -3,6 +3,8 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 from torch.nn import functional as F
+from lstm_srt_full import LSTMSRT
+from gru_srt_full import GRUSRT
 
 class ActorCriticModel(nn.Module):
     def __init__(self, config, observation_space, action_space_shape):
@@ -45,47 +47,49 @@ class ActorCriticModel(nn.Module):
         in_features_next_layer = self.conv_out_size
         
         # fuse layer
-        self.fuse_layer = nn.Linear(self.conv_out_size + observation_space.shape[0] - 432, in_features_next_layer)
-        # else:
-        #     # Case: vector observation is available
-        #     in_features_next_layer = observation_space.shape[0]
+        img_size = self.image_size[0] * self.image_size[1] * self.image_size[2]
+        in_features_next_layer += observation_space.shape[0] - img_size
 
         # Recurrent layer (GRU or LSTM)
         if self.recurrence["layer_type"] == "gru":
             self.recurrent_layer = nn.GRU(in_features_next_layer, self.recurrence["hidden_state_size"], batch_first=True)
         elif self.recurrence["layer_type"] == "lstm":
             self.recurrent_layer = nn.LSTM(in_features_next_layer, self.recurrence["hidden_state_size"], batch_first=True)
+        elif self.recurrence["layer_type"] == "lstm_srt":
+            self.recurrent_layer = LSTMSRT(in_features_next_layer, self.recurrence["hidden_state_size"], 3, batch_first=True)
+        elif self.recurrence["layer_type"] == "gru_srt":
+            self.recurrent_layer = GRUSRT(in_features_next_layer, self.recurrence["hidden_state_size"], 3, batch_first=True)
         # Init recurrent layer
-        for name, param in self.recurrent_layer.named_parameters():
-            if "bias" in name:
-                nn.init.constant_(param, 0)
-            elif "weight" in name:
-                nn.init.orthogonal_(param, np.sqrt(2))
+        # for name, param in self.recurrent_layer.named_parameters():
+        #     if "bias" in name:
+        #         nn.init.constant_(param, 0)
+        #     elif "weight" in name:
+        #         nn.init.orthogonal_(param, np.sqrt(2))
         
         # Hidden layer
         self.lin_hidden = nn.Linear(self.recurrence["hidden_state_size"], self.hidden_size)
-        nn.init.orthogonal_(self.lin_hidden.weight, np.sqrt(2))
+        # nn.init.orthogonal_(self.lin_hidden.weight, np.sqrt(2))
 
         # Decouple policy from value
         # Hidden layer of the policy
         self.lin_policy = nn.Linear(self.hidden_size, self.hidden_size)
-        nn.init.orthogonal_(self.lin_policy.weight, np.sqrt(2))
+        # nn.init.orthogonal_(self.lin_policy.weight, np.sqrt(2))
 
         # Hidden layer of the value function
         self.lin_value = nn.Linear(self.hidden_size, self.hidden_size)
-        nn.init.orthogonal_(self.lin_value.weight, np.sqrt(2))
+        # nn.init.orthogonal_(self.lin_value.weight, np.sqrt(2))
 
         # Outputs / Model heads
         # Policy (Multi-discrete categorical distribution)
         self.policy_branches = nn.ModuleList()
         for num_actions in action_space_shape:
             actor_branch = nn.Linear(in_features=self.hidden_size, out_features=num_actions)
-            nn.init.orthogonal_(actor_branch.weight, np.sqrt(0.01))
+            # nn.init.orthogonal_(actor_branch.weight, np.sqrt(0.01))
             self.policy_branches.append(actor_branch)
 
         # Value function
         self.value = nn.Linear(self.hidden_size, 1)
-        nn.init.orthogonal_(self.value.weight, 1)
+        # nn.init.orthogonal_(self.value.weight, 1)
 
     def forward(self, obs:torch.tensor, recurrent_cell:torch.tensor, device:torch.device, sequence_length:int=1):
         """Forward pass of the model
@@ -102,7 +106,6 @@ class ActorCriticModel(nn.Module):
             {tuple} -- Recurrent cell
         """
         # Set observation as input to the model
-        h = obs
         img_size = self.image_size[0] * self.image_size[1] * self.image_size[2]
         image = obs[:, :img_size].view(-1, 
                                   self.image_size[1], 
@@ -110,31 +113,41 @@ class ActorCriticModel(nn.Module):
                                   self.image_size[0]).permute(0, 3, 1, 2)
         # Forward observation encoder
         # if len(self.observation_space_shape) > 1:
-        batch_size = h.size()[0]
+        batch_size = obs.size()[0]
         # Propagate input through the visual encoder
         image = self.convs(image)
         # Flatten the output of the convolutional layers
         image = image.reshape((batch_size, -1))
-
-        # Concatenate the visual and vector observations
-        h = torch.cat((image, h[:, img_size:]), dim=1)
+        dpose = obs[:, img_size:]
         
-        # Fuse layer
-        h = F.relu(self.fuse_layer(h))
+        # concatenate image and dpose
+        h = torch.cat((image, dpose), dim=-1)
 
         # Forward reccurent layer (GRU or LSTM)
         if sequence_length == 1:
             # Case: sampling training data or model optimization using sequence length == 1
-            h, recurrent_cell = self.recurrent_layer(h.unsqueeze(1), recurrent_cell)
+            if "srt" in self.recurrence["layer_type"]:
+                # Case: Spatial Recurrent Transformer
+                h, recurrent_cell = self.recurrent_layer(h.unsqueeze(1), dpose.unsqueeze(1), recurrent_cell)
+            else:
+                # Case: GRU or LSTM
+                h, recurrent_cell = self.recurrent_layer(h.unsqueeze(1), recurrent_cell)
             h = h.squeeze(1) # Remove sequence length dimension
         else:
             # Case: Model optimization given a sequence length > 1
             # Reshape the to be fed data to batch_size, sequence_length, data
             h_shape = tuple(h.size())
-            h = h.reshape((h_shape[0] // sequence_length), sequence_length, h_shape[1])
-
-            # Forward recurrent layer
-            h, recurrent_cell = self.recurrent_layer(h, recurrent_cell)
+            h = h.reshape(h_shape[0] // sequence_length, sequence_length, h_shape[1])
+            if "srt" in self.recurrence["layer_type"]:
+                # Case: Spatial Recurrent Transformer
+                dpose = dpose.reshape((h_shape[0] // sequence_length), sequence_length, dpose.size()[1])
+                # Forward recurrent layer
+                h, recurrent_cell = self.recurrent_layer(h, dpose, recurrent_cell)
+            else:
+                # Case: GRU or LSTM
+                # Forward recurrent layer
+                h = h.reshape(h_shape[0] // sequence_length, sequence_length, h_shape[1])
+                h, recurrent_cell = self.recurrent_layer(h, recurrent_cell)
 
             # Reshape to the original tensor size
             h_shape = tuple(h.size())
@@ -182,6 +195,6 @@ class ActorCriticModel(nn.Module):
         """
         hxs = torch.zeros((num_sequences), self.recurrence["hidden_state_size"], dtype=torch.float32, device=device).unsqueeze(0)
         cxs = None
-        if self.recurrence["layer_type"] == "lstm":
+        if "lstm" in self.recurrence["layer_type"]:
             cxs = torch.zeros((num_sequences), self.recurrence["hidden_state_size"], dtype=torch.float32, device=device).unsqueeze(0)
         return hxs, cxs

@@ -40,9 +40,9 @@ def main():
 
     # Init recurrent cell
     hxs, cxs = model.init_recurrent_cell_states(1, device)
-    if config["recurrence"]["layer_type"] == "gru":
+    if "gru" in config["recurrence"]["layer_type"]:
         recurrent_cell = hxs
-    elif config["recurrence"]["layer_type"] == "lstm":
+    elif "lstm" in config["recurrence"]["layer_type"]:
         recurrent_cell = (hxs, cxs)
 
     obs = env.reset()

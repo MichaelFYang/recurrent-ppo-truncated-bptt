@@ -62,9 +62,9 @@ class PPOTrainer:
 
         # Setup initial recurrent cell states (LSTM: tuple(tensor, tensor) or GRU: tensor)
         hxs, cxs = self.model.init_recurrent_cell_states(self.config["n_workers"], self.device)
-        if self.recurrence["layer_type"] == "gru":
+        if "gru" in self.recurrence["layer_type"]:
             self.recurrent_cell = hxs
-        elif self.recurrence["layer_type"] == "lstm":
+        elif "lstm" in self.recurrence["layer_type"]:
             self.recurrent_cell = (hxs, cxs)
 
         # Reset workers (i.e. environments)
@@ -136,9 +136,9 @@ class PPOTrainer:
             with torch.no_grad():
                 # Save the initial observations and recurrentl cell states
                 self.buffer.obs[:, t] = torch.tensor(self.obs)
-                if self.recurrence["layer_type"] == "gru":
+                if "gru" in self.recurrence["layer_type"]:
                     self.buffer.hxs[:, t] = self.recurrent_cell.squeeze(0)
-                elif self.recurrence["layer_type"] == "lstm":
+                elif "lstm" in self.recurrence["layer_type"]:
                     self.buffer.hxs[:, t] = self.recurrent_cell[0].squeeze(0)
                     self.buffer.cxs[:, t] = self.recurrent_cell[1].squeeze(0)
 
@@ -174,9 +174,9 @@ class PPOTrainer:
                     # Reset recurrent cell states
                     if self.recurrence["reset_hidden_state"]:
                         hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
-                        if self.recurrence["layer_type"] == "gru":
+                        if "gru" in self.recurrence["layer_type"]:
                             self.recurrent_cell[:, w] = hxs
-                        elif self.recurrence["layer_type"] == "lstm":
+                        elif "lstm" in self.recurrence["layer_type"]:
                             self.recurrent_cell[0][:, w] = hxs
                             self.recurrent_cell[1][:, w] = cxs
                 # Store latest observations
@@ -219,9 +219,9 @@ class PPOTrainer:
             {list} -- list of trainig statistics (e.g. loss)
         """
         # Retrieve sampled recurrent cell states to feed the model
-        if self.recurrence["layer_type"] == "gru":
+        if "gru" in self.recurrence["layer_type"]:
             recurrent_cell = samples["hxs"].unsqueeze(0)
-        elif self.recurrence["layer_type"] == "lstm":
+        elif "lstm" in self.recurrence["layer_type"]:
             recurrent_cell = (samples["hxs"].unsqueeze(0), samples["cxs"].unsqueeze(0))
 
         # Forward model
