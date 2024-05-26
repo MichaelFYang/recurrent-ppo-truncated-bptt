@@ -11,15 +11,15 @@ class Minigrid:
         self._realtime_mode = realtime_mode
         render_mode = "human" if realtime_mode else "rgb_array"
             
-        self._env = gym.make(env_name, agent_view_size = 3, tile_size=28, render_mode=render_mode)
+        self._env = gym.make(env_name, agent_view_size = 3, tile_size=4, render_mode=render_mode)
         # Decrease the agent's view size to raise the agent's memory challenge
         # On MiniGrid-Memory-S7-v0, the default view size is too large to actually demand a recurrent policy.
-        self._env = RGBImgPartialObsWrapper(self._env, tile_size=28)
+        self._env = RGBImgPartialObsWrapper(self._env, tile_size=4)
         self._env = ImgObsWrapper(self._env)
         self._observation_space = spaces.Box(
                 low = 0,
                 high = 1.0,
-                shape = (3, 84, 84),
+                shape = (3, 12, 12),
                 dtype = np.float32)
 
     @property

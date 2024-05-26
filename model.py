@@ -22,12 +22,23 @@ class ActorCriticModel(nn.Module):
         if len(self.observation_space_shape) > 1:
             # Case: visual observation is available
             # Visual encoder made of 3 convolutional layers
-            self.conv1 = nn.Conv2d(observation_space.shape[0], 32, 8, 4,)
-            self.conv2 = nn.Conv2d(32, 64, 4, 2, 0)
-            self.conv3 = nn.Conv2d(64, 64, 3, 1, 0)
-            nn.init.orthogonal_(self.conv1.weight, np.sqrt(2))
-            nn.init.orthogonal_(self.conv2.weight, np.sqrt(2))
-            nn.init.orthogonal_(self.conv3.weight, np.sqrt(2))
+            # self.conv1 = nn.Conv2d(observation_space.shape[0], 32, 5, 2, 1)
+            # self.conv2 = nn.Conv2d(32, 64, 3, 1, 0)
+            # self.conv3 = nn.Conv2d(64, 64, 3, 1, 0)
+            # nn.init.orthogonal_(self.conv1.weight)
+            # nn.init.orthogonal_(self.conv2.weight)
+            # nn.init.orthogonal_(self.conv3.weight)
+            self.convs = nn.Sequential(
+                nn.Conv2d(observation_space.shape[0], 32, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d(2, 2),
+                nn.Conv2d(32, 64, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d(2, 2),
+                nn.Conv2d(64, 64, 3, 1, 1),
+                nn.ReLU(),
+                nn.MaxPool2d(2, 2)
+            )
             # Compute output size of convolutional layers
             self.conv_out_size = self.get_conv_output(observation_space.shape)
             in_features_next_layer = self.conv_out_size
@@ -92,9 +103,7 @@ class ActorCriticModel(nn.Module):
         if len(self.observation_space_shape) > 1:
             batch_size = h.size()[0]
             # Propagate input through the visual encoder
-            h = F.relu(self.conv1(h))
-            h = F.relu(self.conv2(h))
-            h = F.relu(self.conv3(h))
+            h = self.convs(h)
             # Flatten the output of the convolutional layers
             h = h.reshape((batch_size, -1))
 
@@ -142,9 +151,7 @@ class ActorCriticModel(nn.Module):
         Returns:
             {int} -- Number of output features returned by the utilized convolutional layers
         """
-        o = self.conv1(torch.zeros(1, *shape))
-        o = self.conv2(o)
-        o = self.conv3(o)
+        o = self.convs(torch.zeros(1, *shape))
         return int(np.prod(o.size()))
  
     def init_recurrent_cell_states(self, num_sequences:int, device:torch.device) -> tuple:
