@@ -17,9 +17,10 @@ class ActorCriticModel(nn.Module):
         self.hidden_size = config["hidden_layer_size"]
         self.recurrence = config["recurrence"]
         self.observation_space_shape = observation_space.shape
+        self.image_size = (3, 12, 12)
 
         # Observation encoder
-        if len(self.observation_space_shape) > 1:
+        # if len(self.observation_space_shape) > 1:
             # Case: visual observation is available
             # Visual encoder made of 3 convolutional layers
             # self.conv1 = nn.Conv2d(observation_space.shape[0], 32, 5, 2, 1)
@@ -28,23 +29,26 @@ class ActorCriticModel(nn.Module):
             # nn.init.orthogonal_(self.conv1.weight)
             # nn.init.orthogonal_(self.conv2.weight)
             # nn.init.orthogonal_(self.conv3.weight)
-            self.convs = nn.Sequential(
-                nn.Conv2d(observation_space.shape[0], 32, 3, 1, 1),
-                nn.ReLU(),
-                nn.MaxPool2d(2, 2),
-                nn.Conv2d(32, 64, 3, 1, 1),
-                nn.ReLU(),
-                nn.MaxPool2d(2, 2),
-                nn.Conv2d(64, 64, 3, 1, 1),
-                nn.ReLU(),
-                nn.MaxPool2d(2, 2)
-            )
-            # Compute output size of convolutional layers
-            self.conv_out_size = self.get_conv_output(observation_space.shape)
-            in_features_next_layer = self.conv_out_size
-        else:
-            # Case: vector observation is available
-            in_features_next_layer = observation_space.shape[0]
+        self.convs = nn.Sequential(
+            nn.Conv2d(self.image_size[0], 32, 3, 1, 1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 64, 3, 1, 1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 64, 3, 1, 1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2)
+        )
+        # Compute output size of convolutional layers
+        self.conv_out_size = self.get_conv_output(self.image_size)
+        in_features_next_layer = self.conv_out_size
+        
+        # fuse layer
+        self.fuse_layer = nn.Linear(self.conv_out_size + observation_space.shape[0] - 432, in_features_next_layer)
+        # else:
+        #     # Case: vector observation is available
+        #     in_features_next_layer = observation_space.shape[0]
 
         # Recurrent layer (GRU or LSTM)
         if self.recurrence["layer_type"] == "gru":
@@ -99,13 +103,24 @@ class ActorCriticModel(nn.Module):
         """
         # Set observation as input to the model
         h = obs
+        img_size = self.image_size[0] * self.image_size[1] * self.image_size[2]
+        image = obs[:, :img_size].view(-1, 
+                                  self.image_size[1], 
+                                  self.image_size[2], 
+                                  self.image_size[0]).permute(0, 3, 1, 2)
         # Forward observation encoder
-        if len(self.observation_space_shape) > 1:
-            batch_size = h.size()[0]
-            # Propagate input through the visual encoder
-            h = self.convs(h)
-            # Flatten the output of the convolutional layers
-            h = h.reshape((batch_size, -1))
+        # if len(self.observation_space_shape) > 1:
+        batch_size = h.size()[0]
+        # Propagate input through the visual encoder
+        image = self.convs(image)
+        # Flatten the output of the convolutional layers
+        image = image.reshape((batch_size, -1))
+
+        # Concatenate the visual and vector observations
+        h = torch.cat((image, h[:, img_size:]), dim=1)
+        
+        # Fuse layer
+        h = F.relu(self.fuse_layer(h))
 
         # Forward reccurent layer (GRU or LSTM)
         if sequence_length == 1:

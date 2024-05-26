@@ -12,11 +12,15 @@ class MovementObsWrapper(gym.ObservationWrapper):
 
         # Extend the observation space to include the movement and direction change
         original_image_space = self.observation_space
-        self.observation_space = spaces.Dict({
-            'image': original_image_space,
-            'movement': spaces.Box(low=-1, high=1, shape=(2,), dtype=np.int32),
-            'dir_change': spaces.Discrete(3),  # Assuming direction can be -1 (left), 0 (same), 1 (right)
-        })
+        flattened_image_size = np.prod(original_image_space.shape)
+
+        # Extend the observation space to include the flattened image, movement, and direction change
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(flattened_image_size + 2 + 1,),  # Flattened image + 2 for movement + 1 for dir_change
+            dtype=np.float32
+        )
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -33,9 +37,9 @@ class MovementObsWrapper(gym.ObservationWrapper):
         current_dir = self.env.unwrapped.agent_dir
 
         # Calculate movement and direction change
-        movement = np.array([current_pos[0] - self.prev_agent_pos[0], current_pos[1] - self.prev_agent_pos[1]], dtype=np.int32)
+        movement = np.array([current_pos[0] - self.prev_agent_pos[0], current_pos[1] - self.prev_agent_pos[1]], dtype=np.float32)
         dir_change = (current_dir - self.prev_agent_dir + 4) % 4  # Normalize to [0, 3] range
-        
+
         if dir_change == 3:
             dir_change = -1  # Represent left turn as -1
         elif dir_change == 2:
@@ -43,18 +47,17 @@ class MovementObsWrapper(gym.ObservationWrapper):
         elif dir_change == 1:
             dir_change = 1  # Represent right turn as 1
 
-        # Create the observation dict with the new information
-        observation = {
-            'image': obs,
-            'movement': movement,
-            'dir_change': dir_change
-        }
+        # Flatten the image observation and normalize it
+        flattened_image = obs.astype(np.float32).flatten() / 255.0
+
+        # Concatenate all parts into a 1D vector
+        final_obs = np.concatenate((flattened_image, movement, [dir_change])).astype(np.float32)
 
         # Update the previous position and direction
         self.prev_agent_pos = current_pos
         self.prev_agent_dir = current_dir
 
-        return observation
+        return final_obs
 
 
 class MinigridMaze:
@@ -64,17 +67,14 @@ class MinigridMaze:
         self._realtime_mode = realtime_mode
         render_mode = "human" if realtime_mode else "rgb_array"
             
-        self._env = gym.make(env_name, agent_view_size = 3, tile_size=28, render_mode=render_mode)
+        self._env = gym.make(env_name, agent_view_size = 3, tile_size=4, render_mode=render_mode)
         # Decrease the agent's view size to raise the agent's memory challenge
         # On MiniGrid-Memory-S7-v0, the default view size is too large to actually demand a recurrent policy.
-        self._env = RGBImgPartialObsWrapper(self._env, tile_size=28)
+        self._env = RGBImgPartialObsWrapper(self._env, tile_size=4)
         self._env = ImgObsWrapper(self._env)
         self._env = MovementObsWrapper(self._env)
-        self._observation_space = spaces.Dict({
-            'image': spaces.Box(low=0, high=1.0, shape=(3, 84, 84), dtype=np.float32),
-            'movement': spaces.Box(low=-1, high=1, shape=(2,), dtype=np.int32),
-            'dir_change': spaces.Discrete(3),
-        })
+        # Define the observation space based on the final wrapped environment
+        self._observation_space = self._env.observation_space
 
     @property
     def observation_space(self):
@@ -88,27 +88,17 @@ class MinigridMaze:
 
     def reset(self):
         self._rewards = []
-        obs, _ = self._env.reset(seed=np.random.randint(0, 99))
-        obs['image'] = obs['image'].astype(np.float32) / 255.
-        # To conform PyTorch requirements, the channel dimension has to be first.
-        obs['image'] = np.swapaxes(obs['image'], 0, 2)
-        obs['image'] = np.swapaxes(obs['image'], 2, 1)
-        
+        obs, info = self._env.reset(seed=np.random.randint(0, 99))
         return obs
 
     def step(self, action):
         obs, reward, done, truncated, info = self._env.step(action[0])
         self._rewards.append(reward)
-        obs['image'] = obs['image'].astype(np.float32) / 255.
         if done or truncated:
             info = {"reward": sum(self._rewards),
                     "length": len(self._rewards)}
         else:
             info = None
-        # To conform PyTorch requirements, the channel dimension has to be first.
-        obs['image'] = np.swapaxes(obs['image'], 0, 2)
-        obs['image'] = np.swapaxes(obs['image'], 2, 1)
-        
         return obs, reward, done or truncated, info
 
     def render(self):

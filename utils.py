@@ -1,5 +1,6 @@
 from environments.cartpole_env import CartPole
 from environments.minigrid_env import Minigrid
+from environments.minimaze_env import MinigridMaze
 from environments.poc_memory_env import PocMemoryEnv
 from environments.memory_gym_env import MemoryGymWrapper
 
@@ -20,6 +21,8 @@ def create_env(config:dict, render:bool=False):
         return CartPole(mask_velocity=True, realtime_mode = render)
     if config["type"] == "Minigrid":
         return Minigrid(env_name = config["name"], realtime_mode = render)
+    if config["type"] == "MinigridMaze":
+        return MinigridMaze(env_name = config["name"], realtime_mode = render)
     if config["type"] == "MemoryGym":
         return MemoryGymWrapper(env_name = config["name"], reset_params=config["reset_params"], realtime_mode = render)
 
